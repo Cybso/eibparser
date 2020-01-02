@@ -1,35 +1,11 @@
 # Physical addresses
-1.0.1	Schaltaktor Licht
-1.0.2	Schaltaktor Steckdosen
-1.0.3	8f Schalt/Messaktor Steckdosen
-1.0.4	JAL Gruppe 1
-1.0.5	JAL Gruppe 2
-1.0.6	Binäreingang 230V
-1.0.7	Schaltaktor Tür/Klingel
-1.0.8	LED 1
-1.0.9	LED 2
-1.0.10	Analogaktor Rauchmelder
-
-1.0.38	BE-GT2Tx.01 Glastaster II Smart
-1.0.13	HKV OG
-1.0.11	HKV EG
-1.0.17	Taster 4f Küche
-1.0.20	Präsenzmelder Flur OG
-1.0.12	LED 3
-
-0/1/1 int Licht Flur EG
-1/4/17 float Ist-Temperatur Küche
-0/5/3 int Solltemperatur Abstellraum
-1/0/9 int Solltemperatur Gäste
-0/1/39 int Solltemperatur Wohnzimmer
-0/7/9 int Solltemperatur Flur
-1/3/9 int Solltemperatur Schlafzimmer
-
+1.0.1	Lights
+1.0.2	Sockets
+1.0.3	Blinds
+1.0.4	Heating
+1.0.5	LED Controller
 
 # Group addresses and payload types
-1/0/13	int	Gäste Licht Schalten
-1/0/14	int Gäste Licht Status
-1/4/1	int Licht
-1/4/61	int	Gäste Licht Schalte Taster
-1/4/60	int	Gäste Szene
-1/4/64	int	Gäste Nacht 
+1/0/1	int Light Floor
+1/0/2	int Light Floor State
+1/0/3	float Temperature Floot
