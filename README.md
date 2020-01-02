@@ -2,6 +2,9 @@
 
 Parses EIB/KNX telegrams from hexadecimal input.
 
+Uses mapping data from text files or ETS Inside project
+data to translate addresses and data types.
+
 ## Requirements
 
  * Python 3
