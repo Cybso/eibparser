@@ -51,6 +51,7 @@ One mapping entry per line.
 Lines of PA and GA can be mixed.
 
 TYPE is one of:
+
     int      - Integer, encoded as big endian
     int:be   - Integer, encoded as big endian
     int:le   - Integer, encoded as little endian

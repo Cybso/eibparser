@@ -321,6 +321,7 @@ def helpMapping():
 	print(" Lines of PA and GA can be mixed.")
 	print()
 	print(" TYPE is one of:")
+	print()
 	print("    int      - Integer, encoded as big endian")
 	print("    int:be   - Integer, encoded as big endian")
 	print("    int:le   - Integer, encoded as little endian")
