@@ -30,41 +30,69 @@ import sys
 import argparse
 import re
 import json
+import struct
 from datetime import datetime
 
 TYPES = { 0: 'read', 1: 'response', 2: 'write' }
-DEFAULT_FORMAT = "{time} from {source_name} to {dest_name} {type}: {payload}"
+DEFAULT_FORMAT = "{time} from {source_name} to {dest_name} {type}: {value}"
 
 def parsehex(telegram):
 	tb = bytes.fromhex(telegram)
 	r = dict()
 	r['control'] = tb[0]
-	r['repeat'] = tb[0] >> 5 & 0x01
-	r['prio'] = tb[0] >> 2 & 0x03
-	r['source_raw'] = tb[1] << 8 | tb[2]
+	r['repeat'] = (tb[0] >> 5) & 0x01
+	r['prio'] = (tb[0] >> 2) & 0x03
+	r['source_raw'] = (tb[1] << 8) | tb[2]
 	r['source'] = "%d.%d.%d" % (tb[1] >> 4, tb[1] & 0x0f, tb[2])
-	r['dest_raw'] = tb[3] << 8 | tb[4]
+	r['dest_raw'] = (tb[3] << 8) | tb[4]
 	if tb[5] & 0x80 > 0:
 		r['dest'] = "%d/%d/%d" % (tb[3] >> 3, tb[3] & 0x07, tb[4])
 		r['dest_t'] = 'GA'
 	else:
-		r['dest'] = "%d.%d.%d" % (tb[3] >> 4 & 0x0f, tb[3] & 0x0f, tb[4])
+		r['dest'] = "%d.%d.%d" % ((tb[3] >> 4) & 0x0f, tb[3] & 0x0f, tb[4])
 		r['dest_t'] = 'PA'
-	r['hops'] = tb[5] >> 4 & 0x07
+	r['hops'] = (tb[5] >> 4) & 0x07
 	r['size'] = tb[5] & 0x0f
-	r['type_raw'] = (tb[6] & 0x03) << 1 | tb[7] >> 6
+	r['type_raw'] = ((tb[6] & 0x03) << 1) | tb[7] >> 6
 	r['type'] = TYPES.get(r['type_raw'], 'undefined:' + str(r['type_raw']))
 
-	# Mask command bits from first payload byte
-	r['payload'] = (tb[7] & 0x53).to_bytes(1, 'big') + tb[8:7+r['size']]
+	if r['size'] == 1:
+		# Mask command bits from first value byte
+		r['value'] = (tb[7] & 0x53).to_bytes(1, 'big')
+	else:
+		r['value'] = tb[8:7+r['size']]
+	
 	r['parity'] = tb[-1]
 	return r
 
-def loadPaMap(mapping, source):
-	pass
-
-def loadGaMap(mapping, source):
-	pass
+def convertvalue(raw, t):
+	if t in ['int:le']:
+		return int.from_bytes(raw, 'little')
+	elif t in ['int:be', 'int', 'dpt1', 'dpt3']:
+		return int.from_bytes(raw, 'big')
+	elif t in ['str', 'string']:
+		return str(raw)
+	elif t in ['float', 'temp', 'dpt9', 'dpt14']:
+		if len(raw) == 2:
+			# SEEEEMMM MMMMMMMM
+			sign = raw[0] & 0x80 >> 7
+			exp = (raw[0] & 0x78) >> 3
+			mant = ((raw[0] & 0x07) << 8) | raw[1]
+			print(sign, exp, mant)
+			if sign == 1:
+				mant = mant - 2048
+			return "%.2f" % float((1 << exp) * 0.01 * mant)
+		elif len(raw) == 4:
+			# IEEE 754
+			# FIXME LE or BE? I have no example present,
+			#       so this is just a wild guess. Maybe
+			#       the byte order must be reversed.
+			return struct.unpack('f', raw)
+		else:
+			print('Failed to parse value % to float: Illegal size' % raw)
+			return raw.hex()
+	else:
+		return raw.hex()
 
 ###
 # Processes data attributes according to mapping
@@ -83,23 +111,15 @@ def processData(data, mapping):
 		data['source_name'] = 'PA:' + data['source']
 
 	# Translates destination address. For group addresses,
-	# the payload is converted into int, string or hex.
-	# Missing or unknown payload times are ignored.
+	# the value is converted into int, string or hex.
+	# Missing or unknown value times are ignored.
 	mapDest = mapping.get(data['dest'])
 	if mapDest:
 		data['dest_name'] = mapDest['name']
-		payloadType = mapDest['type']
-		if payloadType == 'int:le':
-			data['payload'] = int.from_bytes(data['payload'], 'little')
-		elif payloadType == 'int:be' or payloadType == 'int':
-			data['payload'] = int.from_bytes(data['payload'], 'big')
-		elif payloadType == 'str' or payloadType == 'string':
-			data['payload'] = str(data['payload'])
-		else:
-			data['payload'] = data['payload'].hex()
+		data['value'] = convertvalue(data['value'], mapDest.get('type', 'hex'))
 	else:
 		data['dest_name'] = data['dest_t'] + ':' + data['dest']
-		data['payload'] = data['payload'].hex()
+		data['value'] = convertvalue(data['value'], 'hex')
 
 def helpMapping():
 	print("One mapping entry per line.")
@@ -113,6 +133,7 @@ def helpMapping():
 	print("    int    - Integer, encoded as big endian")
 	print("    int:be - Integer, encoded as big endian")
 	print("    int:le - Integer, encoded as little endian")
+	print("    float  - Floating point (16 or 32 byte)")
 	print("    str    - ASCII string")
 	print("    hex    - Undecoded hexadecimal output (default)")
 	print()
@@ -128,10 +149,10 @@ def helpFormat():
 	print("    {dest_t}      - Type of destination address (PA or GA)")
 	print("    {hops}        - Value of head field 'hops'")
 	print("    {parity}      - Numeric parity value")
-	print("    {payload}     - Payload (decoded from mapping type, if available)")
+	print("    {value}     - value (decoded from mapping type, if available)")
 	print("    {prio}        - Numeric value of header field 'priority'")
 	print("    {repeat}      - Numeric value of header field 'repeat'")
-	print("    {size}        - Numeric value of payload size")
+	print("    {size}        - Numeric value of value size")
 	print("    {source}      - Source address in 0.0.0")
 	print("    {source_name} - Translated name of source address from mapping")
 	print("    {source_raw}  - Numeric value of source address")
