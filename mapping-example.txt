@@ -10,6 +10,22 @@
 1.0.9	LED 2
 1.0.10	Analogaktor Rauchmelder
 
+1.0.38	BE-GT2Tx.01 Glastaster II Smart
+1.0.13	HKV OG
+1.0.11	HKV EG
+1.0.17	Taster 4f Küche
+1.0.20	Präsenzmelder Flur OG
+1.0.12	LED 3
+
+0/1/1 int Licht Flur EG
+1/4/17 float Ist-Temperatur Küche
+0/5/3 int Solltemperatur Abstellraum
+1/0/9 int Solltemperatur Gäste
+0/1/39 int Solltemperatur Wohnzimmer
+0/7/9 int Solltemperatur Flur
+1/3/9 int Solltemperatur Schlafzimmer
+
+
 # Group addresses and payload types
 1/0/13	int	Gäste Licht Schalten
 1/0/14	int Gäste Licht Status

@@ -78,7 +78,6 @@ def convertvalue(raw, t):
 			sign = raw[0] & 0x80 >> 7
 			exp = (raw[0] & 0x78) >> 3
 			mant = ((raw[0] & 0x07) << 8) | raw[1]
-			print(sign, exp, mant)
 			if sign == 1:
 				mant = mant - 2048
 			return "%.2f" % float((1 << exp) * 0.01 * mant)
