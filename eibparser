@@ -26,16 +26,45 @@ along with this program; if not, write to the Free Software Foundation,
 Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.
 """
 
+import os
 import sys
 import argparse
 import re
 import json
 import struct
+import xml.etree.ElementTree as ET
 from datetime import datetime
 
 TYPES = { 0: 'read', 1: 'response', 2: 'write' }
 DEFAULT_FORMAT = "{time} from {source_name} to {dest_name} {type}: {value}"
 
+# Mapping of DPST Datapoint Types
+DPST_MAPPING = {
+	'DPST-1': 'int',
+	'DPST-2': 'int',
+	'DPST-3': 'uint',
+	'DPST-4': 'string',
+	'DPST-5': 'percent',
+	'DPST-6': 'percent',
+	'DPST-7': 'uint',
+	'DPST-8': 'percent',
+	'DPST-9': 'float',
+	'DPST-10': 'time',
+	'DPST-11': 'date',
+	'DPST-12': 'uint',
+	'DPST-13': 'int',
+	'DPST-14': 'float',
+	'DPST-15': 'hex',
+	'DPST-16': 'string',
+	'DPST-17': 'int',
+	'DPST-18': 'int',
+	'DPST-19': 'datetime',
+	'DPST-20': 'bits'
+}
+
+###
+# Parses a hexadecimal presentation of a telegram
+###
 def parsehex(telegram):
 	tb = bytes.fromhex(telegram)
 	r = dict()
@@ -65,11 +94,15 @@ def parsehex(telegram):
 	r['parity'] = tb[-1]
 	return r
 
+###
+# Converts the payload value into a given type.
+# Not all types are implemented, yet
+###
 def convertvalue(raw, t):
-	if t in ['int:le']:
-		return int.from_bytes(raw, 'little')
-	elif t in ['int:be', 'int', 'dpt1', 'dpt3']:
-		return int.from_bytes(raw, 'big')
+	if t in ['int:le', 'uint:le']:
+		return int.from_bytes(raw, 'little', signed=not t.startswith('u'))
+	elif t in ['int:be', 'int', 'uint:be', 'uint']:
+		return int.from_bytes(raw, 'big', signed=not t.startswith('u'))
 	elif t in ['percent', 'hum', 'humidity', '%', 'dpt5', 'dpt6']:
 		return int.from_bytes(raw, 'big') * 0.01
 	elif t in ['str', 'string']:
@@ -92,6 +125,28 @@ def convertvalue(raw, t):
 		else:
 			print('Failed to parse value % to float: Illegal size' % raw)
 			return raw.hex()
+	elif t in ['time']:
+		hour = raw[0] & 0x1F
+		minute = raw[1] & 0x3F
+		seconds = raw[2] & 0x3F
+
+		day = (raw[0] >> 5) & 0x07
+		day = ['', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'][day]
+		return ("%s %02d:%02d:%02d" % (day, hour, minute, seconds)).strip()
+	elif t in ['date']:
+		day = raw[0] & 0x1F
+		month = raw[1] & 0x0F
+		year = 2000 + raw[2]
+		return '%02d-%02d-%02d' % (year, month, day)
+	elif t in ['datetime']:
+		year = 1900 + raw[0]
+		month = raw[1] & 0x0F
+		day = raw[2] & 0x1F
+		hour = raw[3] & 0x1F
+		minute = raw[4] & 0x3F
+		seconds = raw[5] & 0x3F
+		return '%d-%02d-%02dT%02d:%02d:%02d' % (year, month, day, hour, minute, seconds)
+
 	else:
 		return raw.hex()
 
@@ -122,6 +177,141 @@ def processData(data, mapping):
 		data['dest_name'] = data['dest_t'] + ':' + data['dest']
 		data['value'] = convertvalue(data['value'], 'hex')
 
+###
+# Read the first 256 bytes from a file to check if
+# it's an XML file starting with '<rootElement>'.
+# Quick and dirty, just to make sure we do not try 
+# to parse Non-XML files with ElementTree.
+###
+def isXmlFile(f, rootElement):
+	rootElement = rootElement.encode('ASCII')
+	with open(f, 'rb') as fp:
+		first = fp.read(256)
+		return first.find(b'<' + rootElement + b' ') > 0 or first.find(b'<' + rootElement + b'>') > 0
+	return False
+
+###
+# See loadETSIMapping: GA
+###
+def loadETSIGroupAddresses(mapping, source):
+	tree = ET.parse(source)
+	root = tree.getroot()
+	for el in root.findall('.//GA'):
+		address = el.get('Address')
+		name = el.get('Name', '')
+		desc = el.get('Description', '')
+		datatype = el.get('DatapointType')
+
+		if not name or not address:
+			continue
+
+		# Convert address
+		address = int(address)
+		address = "%d/%d/%d" % (
+			(address >> 11),
+			(address >> 8) & 0x07,
+			address & 0xff
+		)
+
+		if desc:
+			name = name + " (" + desc + ")"
+
+		if datatype and datatype.startswith('DPST-'):
+			# Remove subtype
+			dashPos = datatype[5:].find('-')
+			if dashPos > 0:
+				datatype = datatype[0:5+dashPos]
+			datatype = DPST_MAPPING.get(datatype, datatype)
+
+		mapping[address] = {
+			"address": address,
+			"name": name,
+			"type": datatype
+		}
+
+###
+# See loadETSIMapping: PA
+###
+def loadETSIPhysicalAddresses(mapping, source):
+	tree = ET.parse(source)
+	root = tree.getroot()
+	a1 = root.get('Address')
+	if not a1:
+		return
+	for line in root.findall('Line'):
+		a2 = line.get('Address')
+		if not a2:
+			continue
+		for dev in line.findall('DI'):
+			a3 = dev.get('Address')
+			name = dev.get('Name')
+			if not name or not a3:
+				continue
+			address = a1+"."+a2+"."+a3
+			mapping[address] = {
+				'address': address,
+				'name': name,
+				'type': ''
+			}
+
+###
+# Load GAs and PAs from ETSInside project directory.
+#
+# GAs are stored in a XML file called 'G' with root
+# element <GAs>. Each GA is stored in an element with the
+# same name. Relevant attributes are 'Address' (in decimal
+# format), 'Name' and 'Description' and 'DatapointType'.
+#
+# PAs are stored in an XML file named 'P-0267-0_A-2' or
+# maybe something else. The root element is 'Area',
+# having children named 'Line' and 'DI'. Relevant attributes
+# are 'Address' in Area, Line and DI, and 'Name' in DI.
+###
+def loadETSIMapping(mapping, source):
+	for root, dirs, files in os.walk(source):
+		if 'G' in files:
+			if isXmlFile(root + '/G', 'GAs'):
+				# Parse GA XML file
+				loadETSIGroupAddresses(mapping, root + '/G')
+
+				# Also look for Area file
+				for f in files:
+					if f.startswith('P-'):
+						if isXmlFile(root + '/' + f, 'Area'):
+							loadETSIPhysicalAddresses(mapping, root + '/' + f)
+
+				return True
+	return False
+
+###
+# Loads mapping from text files. See helpMapping for details.
+###
+def loadMapping(mapping, source):
+	p_ga = re.compile("(\d+/\d+/\d+)\s+([^\s]+)\s+(.*)")
+	p_pa = re.compile("(\d+\.\d+\.\d+)\\s+()(.*)")
+	with open(source) as fp:
+		i = 0
+		for line in fp:
+			i = i+1
+			line = line.strip()
+			if not line or line.startswith('#'):
+				continue
+
+			m = None
+			for pattern in [p_ga, p_pa]:
+				m = pattern.match(line)
+				if m:
+					mapping[m.group(1)] = {
+						"address": m.group(1),
+						"type": m.group(2),
+						"name": m.group(3)
+					}
+					break
+
+			if not m:
+				print("Error in %s on line %d: Failed to parse '%s'" % (source, i, line), file=sys.stderr)
+				sys.exit(1)
+
 def helpMapping():
 	print("One mapping entry per line.")
 	print()
@@ -131,15 +321,25 @@ def helpMapping():
 	print(" Lines of PA and GA can be mixed.")
 	print()
 	print(" TYPE is one of:")
-	print("    int    - Integer, encoded as big endian")
-	print("    int:be - Integer, encoded as big endian")
-	print("    int:le - Integer, encoded as little endian")
-	print("    float  - Floating point (16 or 32 byte)")
-	print("    str    - ASCII string")
-	print("    hex    - Undecoded hexadecimal output (default)")
+	print("    int      - Integer, encoded as big endian")
+	print("    int:be   - Integer, encoded as big endian")
+	print("    int:le   - Integer, encoded as little endian")
+	print("    uint     - Integer, encoded as big endian")
+	print("    uint:be  - Integer, encoded as big endian")
+	print("    uint:le  - Integer, encoded as little endian")
+	print("    float    - Floating point (16 or 32 byte)")
+	print("    time     - Time value (with day)")
+	print("    date     - Date value")
+	print("    datetime - Date and time value")
+	print("    str      - ASCII string")
+	print("    hex      - Undecoded hexadecimal output (default)")
 	print()
 	print(" Empty lines and lines starting with '#' will be ignored.")
 	print(" Multiple mapping files will be merged.")
+	print()
+	print(" If the parameter points to a directory, this tool will")
+	print(" traverse it and look for ETS Inside project data.")
+	print(" On success, this will be used to complete the mapping.")
 
 def helpFormat():
 	print("Define a format string using following placeholders:")
@@ -167,32 +367,6 @@ def helpFormat():
 	print(" " + DEFAULT_FORMAT)
 	print()
 
-def loadMapping(mapping, source):
-	p_ga = re.compile("(\d+/\d+/\d+)\s+([^\s]+)\s+(.*)")
-	p_pa = re.compile("(\d+\.\d+\.\d+)\\s+()(.*)")
-	with open(source) as fp:
-		i = 0
-		for line in fp:
-			i = i+1
-			line = line.strip()
-			if not line or line.startswith('#'):
-				continue
-
-			m = None
-			for pattern in [p_ga, p_pa]:
-				m = pattern.match(line)
-				if m:
-					mapping[m.group(1)] = {
-						"address": m.group(1),
-						"type": m.group(2),
-						"name": m.group(3)
-					}
-					break
-
-			if not m:
-				print("Error in %s on line %d: Failed to parse '%s'" % (source, i, line), file=sys.stderr)
-				sys.exit(1)
-
 def main():
 	parser = argparse.ArgumentParser(
 		description = "Helper program to convert EIB/KNX telegrams into readable output. Input data is read as hexadecimal string, optionally preceded by a timestamp in HH:MM:SS format, from STDIN.",
@@ -213,7 +387,15 @@ def main():
 			if mapfile == 'help':
 				helpMapping()
 				sys.exit(0)
-			loadMapping(mapping, mapfile)
+			if os.path.isfile(mapfile):
+				loadMapping(mapping, mapfile)
+			elif os.path.isdir(mapfile):
+				if not loadETSIMapping(mapping, mapfile):
+					print('Path seems not to be a project directory: %s' % (mapfile,), file=sys.stderr)
+					sys.exit(1)
+			else:
+				print('File not found: %s' % (mapfile,), file=sys.stderr)
+				sys.exit(1)
 
 	formatstr = args.format
 	if formatstr == 'help':
@@ -230,7 +412,7 @@ def main():
 		line = line.rstrip('\n')
 		match = pattern.match(line)
 		if match:
-			#try:
+			try:
 				data = parsehex(match.group(2))
 				# Look for time string
 				match = pattern_time.match(match.group(1))
@@ -242,9 +424,8 @@ def main():
 					print(json.dumps(data))
 				else:
 					print(formatstr.format(**data))
-			#except Exception as e:
-			#	print("Parse error on input line " + line + ": " + str(e), file=sys.stderr)
-			#	print(e)
+			except Exception as e:
+				print("Parse error on input line " + line + ": " + str(e), file=sys.stderr)
 
 if __name__ == "__main__":
 	main()

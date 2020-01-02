@@ -45,17 +45,29 @@ Default is:
 ## Mapping file
 One mapping entry per line.
 
-    Syntax of GA: 0/0/0 TYPE NAME
-    Syntax of PA: 0.0.0 NAME
+   Syntax of GA: 0/0/0 TYPE NAME
+   Syntax of PA: 0.0.0 NAME
 
 Lines of PA and GA can be mixed.
 
 TYPE is one of:
-    int    - Integer, encoded as big endian
-    int:be - Integer, encoded as big endian
-    int:le - Integer, encoded as little endian
-    str    - ASCII string
-    hex    - Undecoded hexadecimal output (default)
+    int      - Integer, encoded as big endian
+    int:be   - Integer, encoded as big endian
+    int:le   - Integer, encoded as little endian
+    uint     - Integer, encoded as big endian
+    uint:be  - Integer, encoded as big endian
+    uint:le  - Integer, encoded as little endian
+    float    - Floating point (16 or 32 byte)
+    time     - Time value (with day)
+    date     - Date value
+    datetime - Date and time value
+    str      - ASCII string
+    hex      - Undecoded hexadecimal output (default)
 
 Empty lines and lines starting with '#' will be ignored.
 Multiple mapping files will be merged.
+
+If the parameter points to a directory, this tool will
+traverse it and look for ETS Inside project data.
+On success, this will be used to complete the mapping.
+
