@@ -39,27 +39,27 @@ TYPES = { 0: 'read', 1: 'response', 2: 'write' }
 DEFAULT_FORMAT = "{time} from {source_name} to {dest_name} {type}: {value}"
 
 # Mapping of DPST Datapoint Types
-DPST_MAPPING = {
-	'DPST-1': 'int',
-	'DPST-2': 'int',
-	'DPST-3': 'uint',
-	'DPST-4': 'string',
-	'DPST-5': 'percent',
-	'DPST-6': 'percent',
-	'DPST-7': 'uint',
-	'DPST-8': 'percent',
-	'DPST-9': 'float',
-	'DPST-10': 'time',
-	'DPST-11': 'date',
-	'DPST-12': 'uint',
-	'DPST-13': 'int',
-	'DPST-14': 'float',
-	'DPST-15': 'hex',
-	'DPST-16': 'string',
-	'DPST-17': 'int',
-	'DPST-18': 'int',
-	'DPST-19': 'datetime',
-	'DPST-20': 'bits'
+DPT_MAPPING = {
+	'DPT-1': 'int',
+	'DPT-2': 'int',
+	'DPT-3': 'uint',
+	'DPT-4': 'string',
+	'DPT-5': 'percent',
+	'DPT-6': 'percent',
+	'DPT-7': 'uint',
+	'DPT-8': 'percent',
+	'DPT-9': 'float',
+	'DPT-10': 'time',
+	'DPT-11': 'date',
+	'DPT-12': 'uint',
+	'DPT-13': 'int',
+	'DPT-14': 'float',
+	'DPT-15': 'hex',
+	'DPT-16': 'string',
+	'DPT-17': 'int',
+	'DPT-18': 'int',
+	'DPT-19': 'datetime',
+	'DPT-20': 'bits'
 }
 
 ###
@@ -216,12 +216,13 @@ def loadETSIGroupAddresses(mapping, source):
 		if desc:
 			name = name + " (" + desc + ")"
 
-		if datatype and datatype.startswith('DPST-'):
-			# Remove subtype
-			dashPos = datatype[5:].find('-')
-			if dashPos > 0:
-				datatype = datatype[0:5+dashPos]
-			datatype = DPST_MAPPING.get(datatype, datatype)
+		if datatype:
+			if datatype.startswith('DPST-'):
+				# Remove subtype
+				dashPos = datatype[5:].find('-')
+				if dashPos > 0:
+					datatype = 'DPT-' + datatype[5:5+dashPos]
+			datatype = DPT_MAPPING.get(datatype, datatype)
 
 		mapping[address] = {
 			"address": address,
