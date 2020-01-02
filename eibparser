@@ -1,0 +1,230 @@
+#!/usr/bin/env python3
+###
+# Parses EIB telegrams, one per line and translates it into
+# a readable format. You can provide two optional mapping files
+# for Group Addresses and Physical Addresses wich will translate
+# the address into a readable format.
+###
+
+LICENSE="""
+EIBPARSER
+
+Copyright (C) 2020 Roland Tapken <roland@bitarbeiter.net>
+
+This program is free software; you can redistribute it and/or
+modify it under the terms of the GNU Lesser General Public
+License as published by the Free Software Foundation; either
+version 3 of the License, or (at your option) any later version.
+
+This program is distributed in the hope that it will be useful,
+but WITHOUT ANY WARRANTY; without even the implied warranty of
+MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
+Lesser General Public License for more details.
+
+You should have received a copy of the GNU Lesser General Public License
+along with this program; if not, write to the Free Software Foundation,
+Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.
+"""
+
+import sys
+import argparse
+import re
+import json
+from datetime import datetime
+
+TYPES = { 0: 'read', 1: 'response', 2: 'write' }
+DEFAULT_FORMAT = "{time} from {source_name} to {dest_name} {type}: {payload}"
+
+def parsehex(telegram):
+	tb = bytes.fromhex(telegram)
+	r = dict()
+	r['control'] = tb[0]
+	r['repeat'] = tb[0] >> 5 & 0x01
+	r['prio'] = tb[0] >> 2 & 0x03
+	r['source_raw'] = tb[1] << 8 | tb[2]
+	r['source'] = "%d.%d.%d" % (tb[1] >> 4, tb[1] & 0x0f, tb[2])
+	r['dest_raw'] = tb[3] << 8 | tb[4]
+	if tb[5] & 0x80 > 0:
+		r['dest'] = "%d/%d/%d" % (tb[3] >> 3, tb[3] & 0x07, tb[4])
+		r['dest_t'] = 'GA'
+	else:
+		r['dest'] = "%d.%d.%d" % (tb[3] >> 4 & 0x0f, tb[3] & 0x0f, tb[4])
+		r['dest_t'] = 'PA'
+	r['hops'] = tb[5] >> 4 & 0x07
+	r['size'] = tb[5] & 0x0f
+	r['type_raw'] = (tb[6] & 0x03) << 1 | tb[7] >> 6
+	r['type'] = TYPES.get(r['type_raw'], 'undefined:' + str(r['type_raw']))
+
+	# Mask command bits from first payload byte
+	r['payload'] = (tb[7] & 0x53).to_bytes(1, 'big') + tb[8:7+r['size']]
+	r['parity'] = tb[-1]
+	return r
+
+def loadPaMap(mapping, source):
+	pass
+
+def loadGaMap(mapping, source):
+	pass
+
+###
+# Processes data attributes according to mapping
+###
+def processData(data, mapping):
+	# Fill time field if missing.
+	if 'time' not in data or not data['time']:
+		data['time'] = datetime.now().strftime("%H:%M:%S")
+
+	# Translates source address. Adds a new entry
+	# called 'source_name'.
+	mapSource = mapping.get(data['source'])
+	if mapSource:
+		data['source_name'] = mapSource['name']
+	else:
+		data['source_name'] = 'PA:' + data['source']
+
+	# Translates destination address. For group addresses,
+	# the payload is converted into int, string or hex.
+	# Missing or unknown payload times are ignored.
+	mapDest = mapping.get(data['dest'])
+	if mapDest:
+		data['dest_name'] = mapDest['name']
+		payloadType = mapDest['type']
+		if payloadType == 'int:le':
+			data['payload'] = int.from_bytes(data['payload'], 'little')
+		elif payloadType == 'int:be' or payloadType == 'int':
+			data['payload'] = int.from_bytes(data['payload'], 'big')
+		elif payloadType == 'str' or payloadType == 'string':
+			data['payload'] = str(data['payload'])
+		else:
+			data['payload'] = data['payload'].hex()
+	else:
+		data['dest_name'] = data['dest_t'] + ':' + data['dest']
+		data['payload'] = data['payload'].hex()
+
+def helpMapping():
+	print("One mapping entry per line.")
+	print()
+	print("    Syntax of GA: 0/0/0 TYPE NAME")
+	print("    Syntax of PA: 0.0.0 NAME")
+	print()
+	print(" Lines of PA and GA can be mixed.")
+	print()
+	print(" TYPE is one of:")
+	print("    int    - Integer, encoded as big endian")
+	print("    int:be - Integer, encoded as big endian")
+	print("    int:le - Integer, encoded as little endian")
+	print("    str    - ASCII string")
+	print("    hex    - Undecoded hexadecimal output (default)")
+	print()
+	print(" Empty lines and lines starting with '#' will be ignored.")
+	print(" Multiple mapping files will be merged.")
+
+def helpFormat():
+	print("Define a format string using following placeholders:")
+	print("    {control}     - Numeric value of header field 'control' ")
+	print("    {dest}        - Destination address in 0.0.0 (PA) or 0/0/0 (GA)")
+	print("    {dest_name}   - Translated name of destination address from mapping")
+	print("    {dest_raw}    - Numeric value of destination address")
+	print("    {dest_t}      - Type of destination address (PA or GA)")
+	print("    {hops}        - Value of head field 'hops'")
+	print("    {parity}      - Numeric parity value")
+	print("    {payload}     - Payload (decoded from mapping type, if available)")
+	print("    {prio}        - Numeric value of header field 'priority'")
+	print("    {repeat}      - Numeric value of header field 'repeat'")
+	print("    {size}        - Numeric value of payload size")
+	print("    {source}      - Source address in 0.0.0")
+	print("    {source_name} - Translated name of source address from mapping")
+	print("    {source_raw}  - Numeric value of source address")
+	print("    {time}        - Message time. Taken from input in HH:MM:SS, if available; current time otherwise")
+	print("    {type}        - Message type, on of 'read', 'write' or 'response'")
+	print("    {type_raw}    - Numeric message type from header field")
+	print()
+	print(" A special argument is 'json' which outputs all available fields as one-line JSON object.")
+	print("")
+	print(" Default is:")
+	print(" " + DEFAULT_FORMAT)
+	print()
+
+def loadMapping(mapping, source):
+	p_ga = re.compile("(\d+/\d+/\d+)\s+([^\s]+)\s+(.*)")
+	p_pa = re.compile("(\d+\.\d+\.\d+)\\s+()(.*)")
+	with open(source) as fp:
+		i = 0
+		for line in fp:
+			i = i+1
+			line = line.strip()
+			if not line or line.startswith('#'):
+				continue
+
+			m = None
+			for pattern in [p_ga, p_pa]:
+				m = pattern.match(line)
+				if m:
+					mapping[m.group(1)] = {
+						"address": m.group(1),
+						"type": m.group(2),
+						"name": m.group(3)
+					}
+					break
+
+			if not m:
+				print("Error in %s on line %d: Failed to parse '%s'" % (source, i, line), file=sys.stderr)
+				sys.exit(1)
+
+def main():
+	parser = argparse.ArgumentParser(
+		description = "Helper program to convert EIB/KNX telegrams into readable output. Input data is read as hexadecimal string, optionally preceded by a timestamp in HH:MM:SS format, from STDIN.",
+		epilog = "Can be used to parse output from 'knxtool vbusmonitor1time' and similar."
+	)
+	parser.add_argument("-m", "--mapping", help="Mapping file. Can be used multiple times to merge mapping files. Use '--mapping help' to show syntax information.", action='append')
+	parser.add_argument("-f", "--format", help="Output format. Use '--format help' to show syntax information.")
+	parser.add_argument("-l", "--license", help="Show license information", action='store_true')
+	args = parser.parse_args()
+
+	if args.license:
+		print(LICENSE)
+		sys.exit(0)
+
+	mapping = {}
+	if args.mapping:
+		for mapfile in args.mapping:
+			if mapfile == 'help':
+				helpMapping()
+				sys.exit(0)
+			loadMapping(mapping, mapfile)
+
+	formatstr = args.format
+	if formatstr == 'help':
+		helpFormat()
+		sys.exit(0)
+	
+	if not formatstr:
+		formatstr = DEFAULT_FORMAT
+
+	# Read STDIN and extract hexadecimal data with at least 7 bytes
+	pattern = re.compile('(.*?)(([0-9a-f][0-9a-f]\s?){7,}).*?', re.IGNORECASE)
+	pattern_time = re.compile('.*?(\d?\d:\d\d:\d\d).*')
+	for line in sys.stdin:
+		line = line.rstrip('\n')
+		match = pattern.match(line)
+		if match:
+			#try:
+				data = parsehex(match.group(2))
+				# Look for time string
+				match = pattern_time.match(match.group(1))
+				if match:
+					data['time'] = match.group(1)
+				processData(data, mapping)
+
+				if formatstr == 'json':
+					print(json.dumps(data))
+				else:
+					print(formatstr.format(**data))
+			#except Exception as e:
+			#	print("Parse error on input line " + line + ": " + str(e), file=sys.stderr)
+			#	print(e)
+
+if __name__ == "__main__":
+	main()
+
+#  vim: set fenc=utf-8 ts=4 sw=4 noet :

@@ -1,0 +1,19 @@
+# Physical addresses
+1.0.1	Schaltaktor Licht
+1.0.2	Schaltaktor Steckdosen
+1.0.3	8f Schalt/Messaktor Steckdosen
+1.0.4	JAL Gruppe 1
+1.0.5	JAL Gruppe 2
+1.0.6	Binäreingang 230V
+1.0.7	Schaltaktor Tür/Klingel
+1.0.8	LED 1
+1.0.9	LED 2
+1.0.10	Analogaktor Rauchmelder
+
+# Group addresses and payload types
+1/0/13	int	Gäste Licht Schalten
+1/0/14	int Gäste Licht Status
+1/4/1	int Licht
+1/4/61	int	Gäste Licht Schalte Taster
+1/4/60	int	Gäste Szene
+1/4/64	int	Gäste Nacht 
