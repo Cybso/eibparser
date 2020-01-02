@@ -70,12 +70,14 @@ def convertvalue(raw, t):
 		return int.from_bytes(raw, 'little')
 	elif t in ['int:be', 'int', 'dpt1', 'dpt3']:
 		return int.from_bytes(raw, 'big')
+	elif t in ['percent', 'hum', 'humidity', '%', 'dpt5', 'dpt6']:
+		return int.from_bytes(raw, 'big') * 0.01
 	elif t in ['str', 'string']:
 		return str(raw)
 	elif t in ['float', 'temp', 'dpt9', 'dpt14']:
 		if len(raw) == 2:
 			# SEEEEMMM MMMMMMMM
-			sign = raw[0] & 0x80 >> 7
+			sign = (raw[0] & 0x80) >> 7
 			exp = (raw[0] & 0x78) >> 3
 			mant = ((raw[0] & 0x07) << 8) | raw[1]
 			if sign == 1:
