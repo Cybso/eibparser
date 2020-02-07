@@ -104,7 +104,7 @@ def convertvalue(raw, t):
 	elif t in ['int:be', 'int', 'uint:be', 'uint']:
 		return int.from_bytes(raw, 'big', signed=not t.startswith('u'))
 	elif t in ['percent', 'hum', 'humidity', '%', 'dpt5', 'dpt6']:
-		return int.from_bytes(raw, 'big') * 0.01
+		return int.from_bytes(raw, 'big')
 	elif t in ['str', 'string']:
 		return str(raw)
 	elif t in ['float', 'temp', 'dpt9', 'dpt14']:
@@ -170,12 +170,15 @@ def processData(data, mapping):
 	# the value is converted into int, string or hex.
 	# Missing or unknown value times are ignored.
 	mapDest = mapping.get(data['dest'])
+	data['value_raw'] = convertvalue(data['value'], 'hex')
 	if mapDest:
 		data['dest_name'] = mapDest['name']
-		data['value'] = convertvalue(data['value'], mapDest.get('type', 'hex'))
+		data['value_type'] = mapDest.get('type', 'hex')
+		data['value'] = convertvalue(data['value'], data['value_type'])
 	else:
 		data['dest_name'] = data['dest_t'] + ':' + data['dest']
-		data['value'] = convertvalue(data['value'], 'hex')
+		data['value_type'] = 'undefined'
+		data['value'] = data['value_raw']
 
 ###
 # Read the first 256 bytes from a file to check if
@@ -352,7 +355,9 @@ def helpFormat():
 	print("    {dest_t}      - Type of destination address (PA or GA)")
 	print("    {hops}        - Value of head field 'hops'")
 	print("    {parity}      - Numeric parity value")
-	print("    {value}     - value (decoded from mapping type, if available)")
+	print("    {value}       - value (decoded from mapping type, if available)")
+	print("    {value_raw}   - value encoded in hex")
+	print("    {value_type}  - Type used to convert value")
 	print("    {prio}        - Numeric value of header field 'priority'")
 	print("    {repeat}      - Numeric value of header field 'repeat'")
 	print("    {size}        - Numeric value of value size")
@@ -398,6 +403,15 @@ def main():
 			else:
 				print('File not found: %s' % (mapfile,), file=sys.stderr)
 				sys.exit(1)
+	elif os.path.isdir(os.sep.join([os.path.expanduser("~"), ".eibparser"])):
+		# Load defaults from ~/.eibparser/mapping.txt or 
+		# ~/.eibparser/ProjectStore.
+		mapfile = os.sep.join([os.path.expanduser("~"), ".eibparser", "mapping.txt"]);
+		if os.path.isfile(mapfile):
+			loadMapping(mapping, mapfile)
+		mapfile = os.sep.join([os.path.expanduser("~"), ".eibparser", "ProjectStore"]);
+		if os.path.isdir(mapfile):
+			loadETSIMapping(mapping, mapfile)
 
 	formatstr = args.format
 	if formatstr == 'help':
@@ -423,11 +437,11 @@ def main():
 				processData(data, mapping)
 
 				if formatstr == 'json':
-					print(json.dumps(data))
+					print(json.dumps(data), flush=True)
 				else:
-					print(formatstr.format(**data))
+					print(formatstr.format(**data), flush=True)
 			except Exception as e:
-				print("Parse error on input line " + line + ": " + str(e), file=sys.stderr)
+				print("Parse error on input line " + line + ": " + str(e), file=sys.stderr, flush=True)
 
 if __name__ == "__main__":
 	main()
